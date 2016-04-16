@@ -1,0 +1,107 @@
+---
+title: "Assignment Regression models Course Project"
+output: html_document
+---
+####Yann K / Regression models assignment due Apr,17 2016
+###Executive Summary
+ 1. Questions from Motor Trend Magazine 
+    + Are automatic transmissions better than manual transmissions in terms of consumption in miles per gallon (US)?
+    + What is the quantitative difference between manual and automatic transmissions? 
+ 2. Key findings from the `mtcars` dataset(1974) on 32 cars models 
+    + There is a significant difference between manual and automatic transmissions. 
+    + Using a multivariate regression that explains 81% of the variation of `mpg` using the explanatory variables `drat`, `qsec`, `vs`, `am` and `carb` we can estimate that the automatic transmissions use in average 5.45 gallons/mile less than manual transmissions with a level of confidence of 99%.
+ 
+###Data Exploration
+```{r, echo=FALSE}
+library(datasets)
+library(ggplot2)
+library(car)
+library(grid)
+data(mtcars)
+# Converting am and vs variables to factors
+mtcars$am<-factor(mtcars$am)
+mtcars$vs<-factor(mtcars$vs)
+# Auto and manual transmissions data subsets
+mtcars_auto <- subset(mtcars, am==0)
+mtcars_man <- subset(mtcars, am==1)
+
+# Frequency histogram of the consumption of the sampled histograms
+g <- ggplot(data=mtcars, aes(mpg, fill=am))
+g <- g + geom_histogram(bins=10)
+g <- g + scale_fill_discrete(name="Transmission", breaks=c("0", "1"), label=c("Automatic", "Manual"))
+g <- g + geom_vline(xintercept=mean(mtcars_auto$mpg), colour="red", linetype="dashed", size=1) 
+g <- g + geom_vline(xintercept=mean(mtcars_man$mpg), colour="darkgreen", linetype="dashed", size=1) 
+g <- g + ggtitle("Consumption Frequency Histogram") + xlab("Consumption (Miles/Gallon US)")
+
+# Density histogram of the consumption of the sampled automobiles
+g1 <- ggplot(data=mtcars, aes(x=mpg))
+g1 <- g1 + geom_histogram(aes(y=..density..), bins=10, fill="blue")
+g1 <- g1 + stat_function(fun=dnorm, args=list(mean=mean(mtcars$mpg), sd=sd(mtcars$mpg)), colour="red", size=2)
+g1 <- g1 + ggtitle("Consumption Density Histogram") + xlab("Consumption (Miles/Gallon US)")
+
+#boxplot per transmission type
+g2 <- ggplot(data=mtcars, aes(x=am, y=mpg, fill=am))
+g2 <- g2 + geom_boxplot()
+g2 <- g2 + stat_summary(fun.y=mean, geom = "point", shape=8, size=4)
+g2 <- g2 + scale_fill_discrete(name="Transmission", breaks=c("0", "1"), label=c("0-Automatic", "1-Manual"))
+
+#Plot the above 3 graphs on a 2x2 grid
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(2,2)))
+print(g, vp=viewport(layout.pos.row=1, layout.pos.col=1))
+print(g1, vp=viewport(layout.pos.row=1, layout.pos.col=2))
+print(g2, vp=viewport(layout.pos.row=2, layout.pos.col=1))
+
+#T-Test to check if there is any significant difference in the consumption of automatic and manual transmissions
+t.test(mtcars_auto$mpg, mtcars_man$mpg)
+
+```
+#### Conclusion from the exploratory analysis
+ * The consumption of the sampled automobiles appear to be approximatively normally distributed
+ * The risk of skewed data is low as there are no outliers in the sample
+ * From the results of the T-test on the difference of average consumptions between automatic and manual transmissions subsets, there is a significant difference in average consumptions between the 2 types of transmissions. Let's quantity the difference with linear regression models.
+ 
+### Simple linear regression
+```{r}
+fs <- lm(mpg~am, data=mtcars)
+summary(fs)$coefficients
+summary(fs)$r.squared
+```
+####Conclusion from the simple linear regression
+It is estimated with a 95% confidence interval that manual transmissions are using an extra 7.2 gallons/mile. But the model explains only 36% of the variation of `mpg`. Let's use a multivariate regression model to improve the R squared.
+
+### Multivariate linear regression
+```{r}
+#Multivariate linear regression using all the variables
+#The p-value 0.23 for the factor am is not significant
+tail(summary(lm(mpg~., data=mtcars))$coefficients, 3)
+summary(lm(mpg~., data=mtcars))$r.squared
+##Correlation matrix on all combinations of variables excluding the 2 factor variables (am, vs)
+round(cor(subset(mtcars, select=-c(am,vs))), 2)
+##Using variance inflation factor to remove highly correlated variables
+round(vif(lm(mpg~., data=mtcars)), 2)
+#Rerunning multivariate regression without variable disp, which got the highest vif score with 21.62
+#The p-value for factor am is not significant still
+tail(summary(lm(mpg~., data=subset(mtcars, select=-c(disp))))$coefficients, 3)
+#After 5 iterations of removing high vif score variables (disp, cyl, hp, wt, gear)
+fm<-lm(mpg~., data=subset(mtcars, select=-c(disp, cyl, hp, wt,gear)))
+#The p-value for factor am is significant p-value=0.00316 < 0.01
+tail(summary(fm)$coefficients, 3)
+summary(fm)$r.squared
+#Annex: anova between the simple linear regression and the multivariate one 
+anova(fs, fm)
+```
+### Conclusion
+ * The first tentative to run a linear regression using all the variables results on a poor fit for `am` (p-value=0.23 > 0.05)
+ * This is due to the high collinearite between the explanatory variables as shown in the correlation matrix with a coefficient of correlation of 90% between `cyl` and `disp` for example.
+ * We use the variance inflation factor (VIF) iteratively in 2 steps:
+    + Remove the variable with the highest VIF score at each step. At the first run, we remove `disp` with a VIF score of 21.62
+    + Rerun the multivariate linear regression on a subset excluding the above variables and check the p-value of factor am from the regression output. At the first run, `am` has still p-value=0.23 > 0.05
+ * After 5 iterations, and the removal of `disp`, `cyl`, `hp`, `wt` and `gear`, we are able to get (p-value=0.003 < 0.05) for `am` from a multivariate regression that explains about 81% of the variation of `mpg`
+ * We can conclude that there is a 5.45 gallons/mile consumption difference between automatic and manual transmissions with a level of significance of 99% as the p-value of `am` is lower than 0.01.
+
+```{r}
+#Annex: Residual plots show that they are normally distributed
+par(mfrow = c(2, 2))
+plot(fm)
+```
